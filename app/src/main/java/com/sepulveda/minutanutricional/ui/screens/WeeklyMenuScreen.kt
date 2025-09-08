@@ -58,7 +58,7 @@ val weeklyRecipes = listOf(
         calories = 380
     ),
     Recipe(
-        dayOfWeek = "Viernes",
+        dayOfWeek = "Vierness",
         name = "Pescado a la plancha con ensalada",
         mealType = "Cena",
         ingredients = listOf("Filete de pescado", "Lechuga", "Tomate", "Aceite de oliva"),
