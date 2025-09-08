@@ -58,7 +58,7 @@ val weeklyRecipes = listOf(
         calories = 380
     ),
     Recipe(
-        dayOfWeek = "Vierness",
+        dayOfWeek = "Viernes", // corregido
         name = "Pescado a la plancha con ensalada",
         mealType = "Cena",
         ingredients = listOf("Filete de pescado", "Lechuga", "Tomate", "Aceite de oliva"),
@@ -102,10 +102,20 @@ fun WeeklyMenuScreen(onBack: () -> Unit) {
                             text = recipe.name,
                             style = MaterialTheme.typography.titleLarge
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Ingredientes: ${recipe.ingredients.joinToString()}")
-                        Text("Pasos: ${recipe.steps.joinToString()}")
-                        Text("Recomendaciones: ${recipe.nutritionTips.joinToString()}")
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Ingredientes:", style = MaterialTheme.typography.titleSmall)
+                        Text("• " + recipe.ingredients.joinToString("\n• "))
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Pasos:", style = MaterialTheme.typography.titleSmall)
+                        Text(recipe.steps.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n"))
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Recomendaciones:", style = MaterialTheme.typography.titleSmall)
+                        Text("• " + recipe.nutritionTips.joinToString("\n• "))
+
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text("Calorías: ${recipe.calories} kcal")
                     }
                 }
