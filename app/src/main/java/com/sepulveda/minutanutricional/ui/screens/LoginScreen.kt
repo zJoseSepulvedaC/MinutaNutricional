@@ -3,47 +3,62 @@ package com.sepulveda.minutanutricional.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.sepulveda.minutanutricional.accessibility.TtsHelper
-import com.sepulveda.minutanutricional.data.usuariosDemo
-import androidx.compose.ui.semantics.role
+import com.sepulveda.minutanutricional.data.UserPrefs
+import com.sepulveda.minutanutricional.data.UsersRepository
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     tts: TtsHelper,
+    repo: UsersRepository,
     onNavigate: (String) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var rememberMe by remember { mutableStateOf(false) }
     var selectedRole by remember { mutableStateOf("Usuario") }
     var expanded by remember { mutableStateOf(false) }
     var selectedLanguage by remember { mutableStateOf("Español") }
-    var errorText by remember { mutableStateOf<String?>(null) }
+
+    var userError by remember { mutableStateOf<String?>(null) }
+    var passError by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var passwordVisible by remember { mutableStateOf(false) }
 
     val roles = listOf("Usuario", "Administrador")
     val languages = listOf("Español", "Inglés", "Francés")
 
+    fun normalize(s: String) = s.trim().lowercase()
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = {
-                    Text("Login", modifier = Modifier.semantics { heading() })
-                }
+                title = { Text("Login", modifier = Modifier.semantics { heading() }) }
             )
         }
     ) { padding ->
@@ -58,37 +73,55 @@ fun LoginScreen(
             // Usuario
             OutlinedTextField(
                 value = username,
-                onValueChange = { username = it },
+                onValueChange = { username = it; userError = null },
                 label = { Text("Usuario o correo") },
                 singleLine = true,
+                isError = userError != null,
+                supportingText = { userError?.let { Text(it) } },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next
                 ),
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Campo de usuario o correo" }
+                    .semantics {
+                        contentDescription = "Campo de usuario o correo"
+                        userError?.let { stateDescription = "Error: $it" }
+                    }
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Contraseña
+            // Contraseña con toggle de visibilidad
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = { password = it; passError = null },
                 label = { Text("Contraseña") },
                 singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                isError = errorText != null,
-                supportingText = { if (errorText != null) Text(errorText!!) },
+                isError = passError != null,
+                supportingText = { passError?.let { Text(it) } },
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    val (icon, desc) = if (passwordVisible)
+                        Icons.Filled.VisibilityOff to "Ocultar contraseña"
+                    else Icons.Filled.Visibility to "Mostrar contraseña"
+
+                    IconButton(
+                        onClick = { passwordVisible = !passwordVisible },
+                        enabled = !isLoading,
+                        modifier = Modifier.semantics { contentDescription = desc }
+                    ) { Icon(icon, contentDescription = null) }
+                },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done
                 ),
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .semantics {
                         contentDescription = "Campo de contraseña"
-                        if (errorText != null) stateDescription = "Error: $errorText"
+                        passError?.let { stateDescription = "Error: $it" }
                     }
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -101,6 +134,7 @@ fun LoginScreen(
                 Checkbox(
                     checked = rememberMe,
                     onCheckedChange = { rememberMe = it },
+                    enabled = !isLoading,
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .semantics { contentDescription = "Recordar sesión" }
@@ -121,6 +155,7 @@ fun LoginScreen(
                         RadioButton(
                             selected = (role == selectedRole),
                             onClick = { selectedRole = role },
+                            enabled = !isLoading,
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .semantics {
@@ -137,7 +172,7 @@ fun LoginScreen(
             // Idioma (combo)
             ExposedDropdownMenuBox(
                 expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+                onExpandedChange = { if (!isLoading) expanded = !expanded }
             ) {
                 OutlinedTextField(
                     value = selectedLanguage,
@@ -145,6 +180,7 @@ fun LoginScreen(
                     readOnly = true,
                     label = { Text("Idioma") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    enabled = !isLoading,
                     modifier = Modifier
                         .menuAnchor()
                         .fillMaxWidth()
@@ -177,20 +213,45 @@ fun LoginScreen(
             ) {
                 Button(
                     onClick = {
-                        errorText = when {
+                        // Validaciones UI
+                        userError = when {
                             username.isBlank() -> "Ingresa tu usuario o correo."
-                            password.length < 8 -> "La contraseña debe tener al menos 8 caracteres."
-                            usuariosDemo.none { it.usuario == username && it.password == password } ->
-                                "Usuario o contraseña incorrectos."
                             else -> null
                         }
-                        if (errorText == null) onNavigate("weekly")
+                        passError = when {
+                            password.length < 8 -> "La contraseña debe tener al menos 8 caracteres."
+                            else -> null
+                        }
+                        if (userError != null || passError != null) return@Button
+
+                        // Login
+                        isLoading = true
+                        val emailNorm = normalize(username)
+                        val pass = password
+                        scope.launch {
+                            val result = repo.login(emailNorm, pass)
+                            isLoading = false
+                            result.onSuccess {
+                                // Persistir preferencia de sesión
+                                UserPrefs.setLastEmail(context, emailNorm)
+                                UserPrefs.setRemember(context, rememberMe)
+                                onNavigate("weekly")
+                            }.onFailure {
+                                passError = "Usuario o contraseña incorrectos."
+                            }
+                        }
                     },
+                    enabled = !isLoading,
                     modifier = Modifier
                         .weight(1f)
                         .minimumInteractiveComponentSize()
-                        .semantics { contentDescription = "Botón Iniciar sesión" }
-                ) { Text("Entrar") }
+                        .semantics {
+                            contentDescription = if (isLoading) "Iniciando sesión, espere" else "Botón Iniciar sesión"
+                            if (isLoading) stateDescription = "Cargando"
+                        }
+                ) {
+                    if (isLoading) CircularProgressIndicator(strokeWidth = 2.dp) else Text("Entrar")
+                }
 
                 OutlinedButton(
                     onClick = {
@@ -201,6 +262,7 @@ fun LoginScreen(
                                     "Pulsa Entrar para continuar."
                         )
                     },
+                    enabled = !isLoading,
                     modifier = Modifier
                         .weight(1f)
                         .minimumInteractiveComponentSize()
@@ -210,6 +272,7 @@ fun LoginScreen(
 
             TextButton(
                 onClick = { onNavigate("register") },
+                enabled = !isLoading,
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .semantics { contentDescription = "Crear cuenta" }
@@ -217,6 +280,7 @@ fun LoginScreen(
 
             TextButton(
                 onClick = { onNavigate("forgot") },
+                enabled = !isLoading,
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .semantics { contentDescription = "Olvidé mi contraseña" }

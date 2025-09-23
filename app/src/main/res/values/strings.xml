@@ -1,3 +1,12 @@
+<!-- app/src/main/res/values/strings.xml -->
 <resources>
-    <string name="app_name">MinutaNutricional</string>
+    <string name="app_name">Minuta Nutricional</string>
+
+    <!-- Widget -->
+    <string name="receta_del_dia">Receta del día</string>
+    <string name="widget_subtitle_placeholder">Martes · Almuerzo</string>
+    <string name="widget_name_placeholder">Ensalada de quinoa</string>
+
+    <!-- Otros textos que uses -->
+    <!-- … -->
 </resources>

@@ -6,10 +6,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sepulveda.minutanutricional.accessibility.TtsHelper
+import com.sepulveda.minutanutricional.data.UserPrefs
+import com.sepulveda.minutanutricional.data.UsersRepository
 import com.sepulveda.minutanutricional.ui.screens.ForgotPasswordScreen
 import com.sepulveda.minutanutricional.ui.screens.LoginScreen
 import com.sepulveda.minutanutricional.ui.screens.RegisterScreen
@@ -23,39 +28,59 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
         tts = TtsHelper(this)
 
         setContent {
             MinutaNutricionalTheme {
                 val navController = rememberNavController()
+
+                // Observa preferencia "remember session"
+                val remember by UserPrefs.rememberFlow(this).collectAsState(initial = false)
+
                 Surface(color = MaterialTheme.colorScheme.background) {
+                    // Si hay sesión recordada, navega a weekly al arrancar
+                    LaunchedEffect(remember) {
+                        if (remember) {
+                            // Evita apilar: limpia y navega
+                            navController.navigate("weekly") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    }
+
                     NavHost(
                         navController = navController,
                         startDestination = "login"
                     ) {
-                        composable(route = "login") {
+                        composable("login") {
                             LoginScreen(
                                 tts = tts,
+                                repo = UsersRepository,
                                 onNavigate = { route -> navController.navigate(route) }
                             )
                         }
-                        composable(route = "register") {
+                        composable("register") {
                             RegisterScreen(
                                 tts = tts,
+                                repo = UsersRepository,
+                                onRegistered = { navController.popBackStack() },
                                 onBack = { navController.popBackStack() }
                             )
                         }
-                        composable(route = "forgot") {
+                        composable("forgot") {
                             ForgotPasswordScreen(
                                 tts = tts,
                                 onBack = { navController.popBackStack() }
                             )
                         }
-                        composable(route = "weekly") {
+                        composable("weekly") {
                             WeeklyMenuScreen(
                                 tts = tts,
-                                onBack = { navController.popBackStack() }
+                                onBack = {
+                                    // Si quieres hacer "logout" desde aquí,
+                                    // podrías usar UserPrefs.clearSession(this) y volver a login.
+                                    navController.popBackStack()
+                                }
                             )
                         }
                     }

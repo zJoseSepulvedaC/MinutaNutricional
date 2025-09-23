@@ -6,12 +6,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.sepulveda.minutanutricional.accessibility.TtsHelper
+import com.sepulveda.minutanutricional.data.UserPrefs
+import kotlinx.coroutines.launch
 
 // ---------- Modelo de datos ----------
 data class Recipe(
@@ -79,6 +83,9 @@ fun WeeklyMenuScreen(
     tts: TtsHelper,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -97,18 +104,38 @@ fun WeeklyMenuScreen(
                     ) { Text("Atrás") }
                 },
                 actions = {
-                    // Lee en voz alta el resumen de toda la semana
-                    OutlinedButton(
-                        onClick = {
-                            val resumen = weeklyRecipes.joinToString(". ") { r ->
-                                "${r.dayOfWeek}: ${r.mealType} ${r.name}, ${r.calories} kilocalorías"
-                            }
-                            tts.speak("Resumen de la minuta semanal. $resumen.")
-                        },
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .semantics { contentDescription = "Escuchar resumen semanal" }
-                    ) { Text("Escuchar todo") }
+                    Row {
+                        OutlinedButton(
+                            onClick = {
+                                val resumen = weeklyRecipes.joinToString(". ") { r ->
+                                    "${r.dayOfWeek}: ${r.mealType} ${r.name}, ${r.calories} kilocalorías"
+                                }
+                                tts.speak("Resumen de la minuta semanal. $resumen.")
+                            },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .semantics { contentDescription = "Escuchar resumen semanal" }
+                        ) { Text("Escuchar todo") }
+
+                        // Botón SALIR (logout)
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    UserPrefs.clearSession(context)
+                                    // Navega a Login limpiando el back stack (lo manejamos en MainActivity)
+                                    // Lo más simple acá: enviamos un intent convencional
+                                    // pero como usas NavController desde Main, lo haremos vía callback onBack dos veces
+                                    // y dejamos que Main redirija basado en remember=false.
+                                }
+                                // Para que el usuario salga visualmente, retrocede al login:
+                                onBack() // vuelve una
+                                onBack() // y otra por si venía desde más atrás
+                            },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .semantics { contentDescription = "Cerrar sesión" }
+                        ) { Text("Salir") }
+                    }
                 }
             )
         }
