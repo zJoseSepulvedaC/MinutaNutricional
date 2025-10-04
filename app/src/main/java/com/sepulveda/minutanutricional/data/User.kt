@@ -5,7 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-// Añadimos un índice único sobre "email" para evitar registros duplicados por correo.
+// Añadimos un índice único sobre "email" para evitar registros duplicados por correo.se
 @Entity(
     tableName = "users",
     indices = [ Index(value = ["email"], unique = true) ]
