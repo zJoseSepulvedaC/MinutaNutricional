@@ -12,6 +12,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.lifecycleScope
 import com.sepulveda.minutanutricional.accessibility.TtsHelper
 import com.sepulveda.minutanutricional.data.UserPrefs
 import com.sepulveda.minutanutricional.data.UsersRepository
@@ -29,6 +30,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         tts = TtsHelper(this)
+
+        // Inicializar el repositorio (Room DB) y pre-popular usuarios demo la primera vez.
+        // UsersRepository.init requiere un Context y un CoroutineScope (lifecycleScope aquí).
+        UsersRepository.init(applicationContext, lifecycleScope)
 
         setContent {
             MinutaNutricionalTheme {

@@ -1,6 +1,7 @@
 package com.sepulveda.minutanutricional.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
@@ -10,6 +11,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -21,11 +23,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.sepulveda.minutanutricional.accessibility.TtsHelper
 import com.sepulveda.minutanutricional.data.UsersRepository
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.MenuAnchorType
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +36,8 @@ fun RegisterScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -60,6 +62,62 @@ fun RegisterScreen(
     fun normalizeEmail(s: String) = s.trim().lowercase()
     fun isEmailFormatOk(s: String): Boolean =
         Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$").matches(s)
+
+    // Centralizar la acción de registro para usarla desde botón o IME Done
+    fun performRegister() {
+        // Validaciones UI
+        nameError = if (name.isBlank()) "Completa tu nombre." else null
+        val emailNorm = normalizeEmail(email)
+        emailError = when {
+            email.isBlank() -> "Completa tu correo."
+            !isEmailFormatOk(emailNorm) -> "Formato de correo inválido."
+            else -> null
+        }
+        passError = if (password.length < 8) "La contraseña debe tener al menos 8 caracteres." else null
+        confirmError = if (confirmPassword != password) "Las contraseñas no coinciden." else null
+        termsError = if (!acceptTerms) "Debes aceptar los términos para continuar." else null
+
+        if (listOf(nameError, emailError, passError, confirmError, termsError).any { it != null }) {
+            // Feedback audible y visual
+            val firstError = listOf(nameError, emailError, passError, confirmError, termsError)
+                .firstOrNull { it != null } ?: "Revise el formulario"
+            tts.speak(firstError)
+            scope.launch { snackbarHostState.showSnackbar(firstError) }
+            return
+        }
+
+        // Ejecutar registro
+        isLoading = true
+        focusManager.clearFocus()
+
+        val n = name
+        val e = emailNorm
+        val p = password
+
+        scope.launch {
+            try {
+                val result = repo.register(n, e, p)
+                isLoading = false
+                result.onSuccess {
+                    tts.speak("Registro exitoso. Bienvenido $n")
+                    scope.launch { snackbarHostState.showSnackbar("Registro exitoso") }
+                    onRegistered()
+                }.onFailure { ex ->
+                    val msg = ex.message ?: "Error al registrar"
+                    emailError = if (msg.contains("Usuario ya registrado", ignoreCase = true) ||
+                        msg.contains("ya registrado", ignoreCase = true)
+                    ) "Correo ya registrado" else msg
+                    tts.speak(emailError ?: "Error al registrar")
+                    scope.launch { snackbarHostState.showSnackbar(emailError ?: "Error al registrar") }
+                }
+            } catch (e: Exception) {
+                isLoading = false
+                val msg = e.message ?: "Error inesperado"
+                tts.speak(msg)
+                scope.launch { snackbarHostState.showSnackbar(msg) }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -90,7 +148,8 @@ fun RegisterScreen(
                     ) { Text("Escuchar") }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -192,6 +251,7 @@ fun RegisterScreen(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done
                 ),
+                keyboardActions = KeyboardActions(onDone = { performRegister() }),
                 enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -263,34 +323,7 @@ fun RegisterScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = {
-                    // Validaciones UI
-                    nameError = if (name.isBlank()) "Completa tu nombre." else null
-                    val emailNorm = normalizeEmail(email)
-                    emailError = when {
-                        email.isBlank() -> "Completa tu correo."
-                        !isEmailFormatOk(emailNorm) -> "Formato de correo inválido."
-                        else -> null
-                    }
-                    passError = if (password.length < 8) "La contraseña debe tener al menos 8 caracteres." else null
-                    confirmError = if (confirmPassword != password) "Las contraseñas no coinciden." else null
-                    termsError = if (!acceptTerms) "Debes aceptar los términos para continuar." else null
-
-                    if (listOf(nameError, emailError, passError, confirmError, termsError).any { it != null }) return@Button
-
-                    // Registro
-                    isLoading = true
-                    val n = name
-                    val e = emailNorm
-                    val p = password
-                    scope.launch {
-                        delay(150)
-                        val result = repo.register(n, e, p)
-                        isLoading = false
-                        result.onSuccess { onRegistered() }
-                            .onFailure { emailError = "Correo ya registrado" }
-                    }
-                },
+                onClick = { performRegister() },
                 enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()

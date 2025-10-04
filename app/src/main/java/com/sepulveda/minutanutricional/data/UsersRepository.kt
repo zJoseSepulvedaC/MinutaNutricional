@@ -1,50 +1,126 @@
 package com.sepulveda.minutanutricional.data
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/**
- * Repositorio simple en memoria con normalización de email (trim + lowercase).
- * Semilla con usuarios demo. En producción: reemplazar por API/DB y hashing de password.
- */
 object UsersRepository {
 
-    private fun norm(email: String): String = email.trim().lowercase()
+    // Debe inicializarse con init(context, scope)
+    private lateinit var db: AppDatabase
 
-    // Estado interno tipado explícitamente
-    private val _users: MutableStateFlow<List<Usuario>> = MutableStateFlow(
-        listOf(
-            Usuario(email = norm("ana@example.com"),   password = "AnaPass123",   name = "Ana"),
-            Usuario(email = norm("bruno@example.com"), password = "BrunoPass123", name = "Bruno"),
-            Usuario(email = norm("carla@example.com"), password = "CarlaPass123", name = "Carla"),
-            Usuario(email = norm("diego@example.com"), password = "DiegoPass123", name = "Diego"),
-            Usuario(email = norm("eva@example.com"),   password = "EvaPass123",   name = "Eva"),
-        )
-    )
+    // DAO rápido (usa la clase UserDao, no el nombre del archivo)
+    private val userDao: UserDao
+        get() = db.userDao()
 
-    // Exponer como StateFlow tipado
-    val users: StateFlow<List<Usuario>> = _users.asStateFlow()
+    private fun norm(email: String) = email.trim().lowercase()
 
-    fun exists(email: String): Boolean =
-        _users.value.any { u: Usuario -> u.email == norm(email) }
+    /**
+     * Inicializar el repositorio con la instancia del DB.
+     * Llamar una sola vez al arrancar la App.
+     */
+    fun init(context: Context, scope: CoroutineScope) {
+        db = AppDatabase.getInstance(context, scope)
 
-    fun register(name: String, email: String, password: String): Result<Unit> {
-        val e = norm(email)
-        if (exists(e)) return Result.failure(IllegalStateException("Correo ya registrado"))
-        _users.update { current: List<Usuario> -> current + Usuario(email = e, password = password, name = name) }
-        return Result.success(Unit)
+        // Pre-popular sólo si la tabla está vacía (se ejecuta en background)
+        scope.launch(Dispatchers.IO) {
+            val all = userDao.getAll()
+            if (all.isEmpty()) {
+                val demo = listOf(
+                    "ana@example.com" to "AnaPass123",
+                    "bruno@example.com" to "BrunoPass123",
+                    "carla@example.com" to "CarlaPass123",
+                    "diego@example.com" to "DiegoPass123",
+                    "eva@example.com" to "EvaPass123"
+                )
+                demo.forEach { (email, pwd) ->
+                    val salt = HashUtil.randomSalt()
+                    val hash = HashUtil.hashPassword(pwd, salt)
+                    val userEntity = User(
+                        name = email.substringBefore("@").replaceFirstChar { it.uppercase() },
+                        email = norm(email),
+                        passwordHash = hash,
+                        salt = salt
+                    )
+                    try {
+                        userDao.insert(userEntity)
+                    } catch (_: Exception) {
+                        // ignorar errores de inserción en prepopulado
+                    }
+                }
+            }
+        }
     }
 
-    fun login(email: String, password: String): Result<Usuario> {
+    suspend fun exists(email: String): Boolean = withContext(Dispatchers.IO) {
         val e = norm(email)
-        val user: Usuario = _users.value.firstOrNull { u: Usuario -> u.email == e }
-            ?: return Result.failure(IllegalArgumentException("Credenciales inválidas"))
+        userDao.findByEmail(e) != null
+    }
 
-        if (user.password != password) {
-            return Result.failure(IllegalArgumentException("Credenciales inválidas"))
+    suspend fun register(name: String, email: String, password: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            val e = norm(email)
+            val existing = userDao.findByEmail(e)
+            if (existing != null) return@withContext Result.failure(IllegalStateException("Correo ya registrado"))
+
+            val salt = HashUtil.randomSalt()
+            val hash = HashUtil.hashPassword(password, salt)
+            val userEntity = User(
+                name = name,
+                email = e,
+                passwordHash = hash,
+                salt = salt
+            )
+            try {
+                userDao.insert(userEntity)
+                Result.success(Unit)
+            } catch (ex: Exception) {
+                Result.failure(ex)
+            }
         }
-        return Result.success(user)
+    }
+
+    suspend fun login(email: String, password: String): Result<Usuario> {
+        return withContext(Dispatchers.IO) {
+            val e = norm(email)
+            val userEntity = userDao.findByEmail(e)
+                ?: return@withContext Result.failure(IllegalArgumentException("Credenciales inválidas"))
+
+            val computedHash = HashUtil.hashPassword(password, userEntity.salt)
+            if (computedHash != userEntity.passwordHash) {
+                return@withContext Result.failure(IllegalArgumentException("Credenciales inválidas"))
+            }
+
+            val usuario = Usuario(
+                id = userEntity.id,
+                name = userEntity.name,
+                email = userEntity.email
+            )
+            Result.success(usuario)
+        }
+    }
+
+    suspend fun resetPassword(email: String, newPassword: String): Result<Boolean> {
+        return withContext(Dispatchers.IO) {
+            val e = norm(email)
+            val userEntity = userDao.findByEmail(e) ?: return@withContext Result.failure(Exception("Usuario no encontrado"))
+            val newSalt = HashUtil.randomSalt()
+            val newHash = HashUtil.hashPassword(newPassword, newSalt)
+            val updated = userEntity.copy(passwordHash = newHash, salt = newSalt)
+            try {
+                userDao.update(updated)
+                Result.success(true)
+            } catch (ex: Exception) {
+                Result.failure(ex)
+            }
+        }
+    }
+
+    suspend fun getAllUsers(): List<Usuario> = withContext(Dispatchers.IO) {
+        userDao.getAll().map { u ->
+            Usuario(id = u.id, name = u.name, email = u.email)
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.sepulveda.minutanutricional.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
@@ -12,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -37,6 +39,7 @@ fun LoginScreen(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -53,14 +56,73 @@ fun LoginScreen(
     val roles = listOf("Usuario", "Administrador")
     val languages = listOf("Español", "Inglés", "Francés")
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
     fun normalize(s: String) = s.trim().lowercase()
+
+    // función centralizada para realizar login (llamada desde botón o IME Done)
+    fun performLogin() {
+        // Validaciones UI
+        userError = when {
+            username.isBlank() -> "Ingresa tu usuario o correo."
+            else -> null
+        }
+        passError = when {
+            password.length < 8 -> "La contraseña debe tener al menos 8 caracteres."
+            else -> null
+        }
+        if (userError != null || passError != null) {
+            // dar feedback por voz si falla validación
+            tts.speak(userError ?: passError ?: "Error de validación")
+            return
+        }
+
+        // Ejecutar login
+        isLoading = true
+        focusManager.clearFocus()
+
+        val emailNorm = normalize(username)
+        val pass = password
+
+        scope.launch {
+            try {
+                val result = repo.login(emailNorm, pass)
+                isLoading = false
+                result.onSuccess {
+                    // Persistir preferencia de sesión (ejecutar en coroutine)
+                    try {
+                        UserPrefs.setLastEmail(context, emailNorm)
+                        UserPrefs.setRemember(context, rememberMe)
+                    } catch (e: Exception) {
+                        // no bloquear si falla el guardado de prefs; informar en snackbar
+                        snackbarHostState.showSnackbar("No se pudieron guardar preferencias localmente.")
+                    }
+
+                    // feedback audible y navegación
+                    tts.speak("Bienvenido ${it.name ?: "usuario"}. Accediendo al menú principal.")
+                    onNavigate("weekly")
+                }.onFailure { ex ->
+                    passError = ex.message ?: "Usuario o contraseña incorrectos."
+                    tts.speak(passError ?: "Error al iniciar sesión")
+                    snackbarHostState.showSnackbar(passError ?: "Error al iniciar sesión")
+                }
+            } catch (e: Exception) {
+                isLoading = false
+                val msg = e.message ?: "Error inesperado"
+                passError = msg
+                tts.speak(msg)
+                snackbarHostState.showSnackbar(msg)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Login", modifier = Modifier.semantics { heading() }) }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -116,6 +178,7 @@ fun LoginScreen(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done
                 ),
+                keyboardActions = KeyboardActions(onDone = { performLogin() }),
                 enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -151,7 +214,10 @@ fun LoginScreen(
                     .selectableGroup()
             ) {
                 roles.forEach { role ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         RadioButton(
                             selected = (role == selectedRole),
                             onClick = { selectedRole = role },
@@ -212,35 +278,7 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Button(
-                    onClick = {
-                        // Validaciones UI
-                        userError = when {
-                            username.isBlank() -> "Ingresa tu usuario o correo."
-                            else -> null
-                        }
-                        passError = when {
-                            password.length < 8 -> "La contraseña debe tener al menos 8 caracteres."
-                            else -> null
-                        }
-                        if (userError != null || passError != null) return@Button
-
-                        // Login
-                        isLoading = true
-                        val emailNorm = normalize(username)
-                        val pass = password
-                        scope.launch {
-                            val result = repo.login(emailNorm, pass)
-                            isLoading = false
-                            result.onSuccess {
-                                // Persistir preferencia de sesión
-                                UserPrefs.setLastEmail(context, emailNorm)
-                                UserPrefs.setRemember(context, rememberMe)
-                                onNavigate("weekly")
-                            }.onFailure {
-                                passError = "Usuario o contraseña incorrectos."
-                            }
-                        }
-                    },
+                    onClick = { performLogin() },
                     enabled = !isLoading,
                     modifier = Modifier
                         .weight(1f)
@@ -255,6 +293,7 @@ fun LoginScreen(
 
                 OutlinedButton(
                     onClick = {
+                        // instrucciones de voz
                         tts.speak(
                             "Pantalla de inicio de sesión. " +
                                     "Ingresa tu usuario o correo y tu contraseña. " +
